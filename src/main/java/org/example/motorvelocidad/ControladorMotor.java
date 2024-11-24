@@ -5,6 +5,7 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.chart.LineChart;
+import javafx.scene.chart.XYChart;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
@@ -21,6 +22,9 @@ public class ControladorMotor {
 
     // Serial
     private SerialPort arduinoPort;
+
+    // Buffer de string
+    private final StringBuilder dataBuffer = new StringBuilder();
 
     // Labels
     @FXML private Label kpLabel;
@@ -44,6 +48,11 @@ public class ControladorMotor {
     @FXML public void initialize() {
         puertosDisponiblesComboBox.setItems(obtenerPuertosDisponibles());
         realimentacionElegidaComboBox.setItems(obtenerRealimentaciones());
+
+        // Inicializar la gráfica
+        XYChart.Series<Number, Number> series = new XYChart.Series<>();
+        series.setName("RPM");
+        funcionTransferenciaChart.getData().add(series);
     }
 
     private ObservableList<String> obtenerPuertosDisponibles() {
@@ -67,57 +76,154 @@ public class ControladorMotor {
     // Funciones
     @FXML private void onPuertoSeleccionado() {
         arduinoPort = SerialPort.getCommPort(puertosDisponiblesComboBox.getValue());
-        realimentacionLabel.setDisable(false);
-        ingresarRPMLabel.setDisable(false);
-        rpmTextField.setDisable(false);
-        realimentacionElegidaComboBox.setDisable(false);
-    }
+        arduinoPort.setBaudRate(9600);
+        arduinoPort.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 0, 0);
 
-    @FXML private void onRPMEnviado() {
-        String textoEnviado = "%s\n".formatted(rpmTextField.getText());
-        arduinoPort.writeBytes(COMANDO_LAZO_ABIERTO.getBytes(), COMANDO_LAZO_ABIERTO.length());
-        arduinoPort.writeBytes(textoEnviado.getBytes(), textoEnviado.length());
-        arduinoPort.writeBytes(COMANDO_LAZO_CERRADO.getBytes(), COMANDO_LAZO_CERRADO.length());
-    }
+        if (arduinoPort.openPort()) {
+            System.out.println("Puerto abierto exitosamente.");
+            realimentacionLabel.setDisable(false);
+            ingresarRPMLabel.setDisable(false);
+            rpmTextField.setDisable(false);
+            realimentacionElegidaComboBox.setDisable(false);
 
-    @FXML private void onKpEnviado() {
-        String textoEnviado = "%s\n".formatted(kpTextField.getText());
-        arduinoPort.writeBytes(COMANDO_KP.getBytes(), COMANDO_KP.length());
-        arduinoPort.writeBytes(textoEnviado.getBytes(), textoEnviado.length());
-    }
-
-    @FXML private void onKiEnviado() {
-        String textoEnviado = "%s\n".formatted(kiTextField.getText());
-        arduinoPort.writeBytes(COMANDO_KI.getBytes(), COMANDO_KI.length());
-        arduinoPort.writeBytes(textoEnviado.getBytes(), textoEnviado.length());
-    }
-
-    @FXML private void onKdEnviado() {
-        String textoEnviado = "%s\n".formatted(kdTextField.getText());
-        arduinoPort.writeBytes(COMANDO_KD.getBytes(), COMANDO_KD.length());
-        arduinoPort.writeBytes(textoEnviado.getBytes(), textoEnviado.length());
+            // Iniciar un hilo para leer datos del Arduino
+            new Thread(this::leerDatosArduino).start();
+        } else {
+            System.out.println("No se pudo abrir el puerto.");
+        }
     }
 
     @FXML private void onRealimentacionElegida() {
-        switch (realimentacionElegidaComboBox.getValue()) {
-            case "Lazo Abierto" -> {
-                arduinoPort.writeBytes(COMANDO_LAZO_ABIERTO.getBytes(), COMANDO_LAZO_ABIERTO.length());
-                kpLabel.setDisable(true);
-                kiLabel.setDisable(true);
-                kdLabel.setDisable(true);
-                kpTextField.setDisable(true);
-                kiTextField.setDisable(true);
-                kdTextField.setDisable(true);
+        if (arduinoPort == null || !arduinoPort.isOpen()) {
+            System.out.println("El puerto no está abierto.");
+            return;
+        }
+
+        String comando = realimentacionElegidaComboBox.getValue().equals("Lazo Abierto") ? COMANDO_LAZO_ABIERTO : COMANDO_LAZO_CERRADO;
+        enviarComando(comando);
+
+        boolean estaEnLazoCerrado = comando.equals(COMANDO_LAZO_CERRADO);
+        kpLabel.setDisable(!estaEnLazoCerrado);
+        kiLabel.setDisable(!estaEnLazoCerrado);
+        kdLabel.setDisable(!estaEnLazoCerrado);
+        kpTextField.setDisable(!estaEnLazoCerrado);
+        kiTextField.setDisable(!estaEnLazoCerrado);
+        kdTextField.setDisable(!estaEnLazoCerrado);
+    }
+
+    private void leerDatosArduino() {
+        while (arduinoPort.isOpen()) {
+            try {
+                if (arduinoPort.bytesAvailable() > 0) {
+                    byte[] readBuffer = new byte[arduinoPort.bytesAvailable()];
+                    int numRead = arduinoPort.readBytes(readBuffer, readBuffer.length);
+                    String datos = new String(readBuffer, 0, numRead);
+                    dataBuffer.append(datos);
+
+                    int endIndex;
+                    while ((endIndex = dataBuffer.indexOf("\n")) != -1) {
+                        String linea = dataBuffer.substring(0, endIndex);
+                        procesarDatosArduino(linea);
+                        dataBuffer.delete(0, endIndex + 1);
+                    }
+                }
+                Thread.sleep(20);
+            } catch (Exception e) {
+                e.printStackTrace();
             }
-            case "Lazo Cerrado" -> {
-                arduinoPort.writeBytes(COMANDO_LAZO_CERRADO.getBytes(), COMANDO_LAZO_CERRADO.length());
-                kpLabel.setDisable(false);
-                kiLabel.setDisable(false);
-                kdLabel.setDisable(false);
-                kpTextField.setDisable(false);
-                kiTextField.setDisable(false);
-                kdTextField.setDisable(false);
+        }
+    }
+
+    private void enviarComando(String comando) {
+        if (arduinoPort != null && arduinoPort.isOpen()) {
+            arduinoPort.writeBytes(comando.getBytes(), comando.length());
+            System.out.println("Comando enviado: " + comando.trim());
+        } else {
+            System.out.println("No se pudo enviar el comando. El puerto no está abierto.");
+        }
+    }
+
+    private void enviarConstante(String comando, String valor) {
+        enviarComando(comando);
+
+        enviarComando(valor + "\n");
+    }
+
+    @FXML private void onKpEnviado() {
+        enviarConstante(COMANDO_KP, kpTextField.getText());
+        kpTextField.setText("");
+    }
+
+    @FXML private void onKiEnviado() {
+        enviarConstante(COMANDO_KI, kiTextField.getText());
+        kiTextField.setText("");
+    }
+
+    @FXML private void onKdEnviado() {
+        enviarConstante(COMANDO_KD, kdTextField.getText());
+        kdTextField.setText("");
+    }
+
+    @FXML private void onRPMEnviado() {
+        enviarComando(rpmTextField.getText() + "\n");
+        rpmTextField.setText("");
+    }
+
+    private void procesarDatosArduino(String datos) {
+        String[] lineas = datos.split("\n");
+        for (String linea : lineas) {
+            linea = linea.trim();
+            if (linea.isEmpty()) continue;
+
+            if (linea.contains("\t")) {
+                // Datos de RPM y tiempo
+                procesarDatosRPM(linea);
+            } else if (linea.startsWith("RPM nuevo:")) {
+                // Confirmación de cambio de RPM
+                System.out.println("RPM actualizado: " + linea);
+            } else if (linea.startsWith("Kp nuevo:") || linea.startsWith("Ki nuevo:") || linea.startsWith("Kd nuevo:")) {
+                // Confirmación de cambio de constantes PID
+                System.out.println("Constante PID actualizada: " + linea);
+            } else if (linea.equals("Lazo abierto elegido") || linea.equals("Lazo cerrado elegido")) {
+                // Confirmación de cambio de modo de control
+                System.out.println("Modo de control cambiado: " + linea);
+            } else {
+                // Otros mensajes del Arduino
+                System.out.println("Mensaje de Arduino: " + linea);
             }
+        }
+    }
+
+    private void procesarDatosRPM(String linea) {
+        String[] partes = linea.split("\t");
+        if (partes.length == 2) {
+            try {
+                long tiempo = Long.parseLong(partes[0]);
+                int rpm = Integer.parseInt(partes[1]);
+                actualizarGrafica(tiempo, rpm);
+            } catch (NumberFormatException e) {
+                System.out.println("Error al parsear datos de RPM: " + linea);
+            }
+        }
+    }
+
+    private void actualizarGrafica(long tiempo, int rpm) {
+        javafx.application.Platform.runLater(() -> {
+            XYChart.Series<Number, Number> series = funcionTransferenciaChart.getData().getFirst();
+            series.getData().add(new XYChart.Data<>(tiempo, rpm));
+
+            // Limitar el número de puntos en la gráfica para evitar sobrecarga
+            if (series.getData().size() > 100) {
+                series.getData().removeFirst();
+            }
+
+            rpmMedidosLabel.setText(rpm + " RPM");
+        });
+    }
+
+    public void close() {
+        if (arduinoPort != null && arduinoPort.isOpen()) {
+            arduinoPort.closePort();
         }
     }
 }
