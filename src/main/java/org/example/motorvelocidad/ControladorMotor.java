@@ -53,6 +53,10 @@ public class ControladorMotor {
         XYChart.Series<Number, Number> series = new XYChart.Series<>();
         series.setName("RPM");
         funcionTransferenciaChart.getData().add(series);
+
+        // Leyendas de los colores
+        ColoredOutput.colorPrintln("Mensajes en verde = Cadenas mandadas al Serial", ColoredOutput.ANSIColor.GREEN);
+        ColoredOutput.colorPrintln("Mensajes en cian = Cadenas regresadas del Arduino", ColoredOutput.ANSIColor.CYAN);
     }
 
     private ObservableList<String> obtenerPuertosDisponibles() {
@@ -137,7 +141,7 @@ public class ControladorMotor {
     private void enviarComando(String comando) {
         if (arduinoPort != null && arduinoPort.isOpen()) {
             arduinoPort.writeBytes(comando.getBytes(), comando.length());
-            System.out.println("Comando enviado: " + comando.trim());
+            ColoredOutput.colorPrintln(comando.trim(), ColoredOutput.ANSIColor.GREEN);
         } else {
             System.out.println("No se pudo enviar el comando. El puerto no está abierto.");
         }
@@ -145,7 +149,6 @@ public class ControladorMotor {
 
     private void enviarConstante(String comando, String valor) {
         enviarComando(comando);
-
         enviarComando(valor + "\n");
     }
 
@@ -180,16 +183,16 @@ public class ControladorMotor {
                 procesarDatosRPM(linea);
             } else if (linea.startsWith("RPM nuevo:")) {
                 // Confirmación de cambio de RPM
-                System.out.println("RPM actualizado: " + linea);
+                ColoredOutput.colorPrintln(linea, ColoredOutput.ANSIColor.CYAN);
             } else if (linea.startsWith("Kp nuevo:") || linea.startsWith("Ki nuevo:") || linea.startsWith("Kd nuevo:")) {
                 // Confirmación de cambio de constantes PID
-                System.out.println("Constante PID actualizada: " + linea);
+                ColoredOutput.colorPrintln(linea, ColoredOutput.ANSIColor.CYAN);
             } else if (linea.equals("Lazo abierto elegido") || linea.equals("Lazo cerrado elegido")) {
                 // Confirmación de cambio de modo de control
-                System.out.println("Modo de control cambiado: " + linea);
+                ColoredOutput.colorPrintln(linea, ColoredOutput.ANSIColor.CYAN);
             } else {
                 // Otros mensajes del Arduino
-                System.out.println("Mensaje de Arduino: " + linea);
+                ColoredOutput.colorPrintln(linea, ColoredOutput.ANSIColor.CYAN);
             }
         }
     }
@@ -225,5 +228,6 @@ public class ControladorMotor {
         if (arduinoPort != null && arduinoPort.isOpen()) {
             arduinoPort.closePort();
         }
+        System.out.println("Puerto cerrado.");
     }
 }
