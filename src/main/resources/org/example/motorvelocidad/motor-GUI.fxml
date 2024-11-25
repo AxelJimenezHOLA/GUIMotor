@@ -110,12 +110,12 @@
                   </font>
                </Label>
                <ComboBox fx:id="puertosDisponiblesComboBox" onAction="#onPuertoSeleccionado" prefHeight="26.0" prefWidth="188.0" promptText="Ninguno" />
-               <Label fx:id="realimentacionLabel" alignment="CENTER" disable="true" prefHeight="26.0" prefWidth="188.0" text="Realimentación">
+               <Label fx:id="realimentacionLabel" alignment="CENTER" disable="true" prefHeight="26.0" prefWidth="188.0" text="Lazo elegido">
                   <font>
                      <Font size="16.0" />
                   </font>
                </Label>
-               <ComboBox fx:id="realimentacionElegidaComboBox" disable="true" onAction="#onRealimentacionElegida" prefWidth="150.0" promptText="Lazo Abierto" />
+               <ComboBox fx:id="realimentacionElegidaComboBox" disable="true" onAction="#onRealimentacionElegida" prefWidth="150.0" promptText="Ninguno" />
             </children>
          </VBox>
       </children>

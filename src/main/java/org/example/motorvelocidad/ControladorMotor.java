@@ -72,8 +72,8 @@ public class ControladorMotor {
 
     private ObservableList<String> obtenerRealimentaciones() {
         ArrayList<String> nombresRealimentaciones = new ArrayList<>();
-        nombresRealimentaciones.add("Lazo Abierto");
-        nombresRealimentaciones.add("Lazo Cerrado");
+        nombresRealimentaciones.add("Abierto");
+        nombresRealimentaciones.add("Cerrado");
         return FXCollections.observableArrayList(nombresRealimentaciones);
     }
 
@@ -86,8 +86,6 @@ public class ControladorMotor {
         if (arduinoPort.openPort()) {
             System.out.println("Puerto abierto exitosamente.");
             realimentacionLabel.setDisable(false);
-            ingresarRPMLabel.setDisable(false);
-            rpmTextField.setDisable(false);
             realimentacionElegidaComboBox.setDisable(false);
 
             // Iniciar un hilo para leer datos del Arduino
@@ -103,7 +101,7 @@ public class ControladorMotor {
             return;
         }
 
-        String comando = realimentacionElegidaComboBox.getValue().equals("Lazo Abierto") ? COMANDO_LAZO_ABIERTO : COMANDO_LAZO_CERRADO;
+        String comando = realimentacionElegidaComboBox.getValue().equals("Abierto") ? COMANDO_LAZO_ABIERTO : COMANDO_LAZO_CERRADO;
         enviarComando(comando);
 
         boolean estaEnLazoCerrado = comando.equals(COMANDO_LAZO_CERRADO);
@@ -113,6 +111,8 @@ public class ControladorMotor {
         kpTextField.setDisable(!estaEnLazoCerrado);
         kiTextField.setDisable(!estaEnLazoCerrado);
         kdTextField.setDisable(!estaEnLazoCerrado);
+        ingresarRPMLabel.setDisable(false);
+        rpmTextField.setDisable(false);
     }
 
     private void leerDatosArduino() {
@@ -154,42 +154,33 @@ public class ControladorMotor {
 
     @FXML private void onKpEnviado() {
         enviarConstante(COMANDO_KP, kpTextField.getText());
-        kpTextField.setText("");
     }
 
     @FXML private void onKiEnviado() {
         enviarConstante(COMANDO_KI, kiTextField.getText());
-        kiTextField.setText("");
     }
 
     @FXML private void onKdEnviado() {
         enviarConstante(COMANDO_KD, kdTextField.getText());
-        kdTextField.setText("");
     }
 
     @FXML private void onRPMEnviado() {
-        enviarComando(rpmTextField.getText() + "\n");
-        rpmTextField.setText("");
+        enviarConstante(COMANDO_LAZO_ABIERTO, rpmTextField.getText());
+        if (realimentacionElegidaComboBox.getValue().equals("Abierto")) {
+            enviarComando(COMANDO_LAZO_ABIERTO);
+        } else {
+            enviarComando(COMANDO_LAZO_CERRADO);
+        }
     }
 
     private void procesarDatosArduino(String datos) {
         String[] lineas = datos.split("\n");
         for (String linea : lineas) {
             linea = linea.trim();
-            if (linea.isEmpty()) continue;
 
             if (linea.contains("\t")) {
                 // Datos de RPM y tiempo
                 procesarDatosRPM(linea);
-            } else if (linea.startsWith("RPM nuevo:")) {
-                // Confirmación de cambio de RPM
-                ColoredOutput.colorPrintln(linea, ColoredOutput.ANSIColor.CYAN);
-            } else if (linea.startsWith("Kp nuevo:") || linea.startsWith("Ki nuevo:") || linea.startsWith("Kd nuevo:")) {
-                // Confirmación de cambio de constantes PID
-                ColoredOutput.colorPrintln(linea, ColoredOutput.ANSIColor.CYAN);
-            } else if (linea.equals("Lazo abierto elegido") || linea.equals("Lazo cerrado elegido")) {
-                // Confirmación de cambio de modo de control
-                ColoredOutput.colorPrintln(linea, ColoredOutput.ANSIColor.CYAN);
             } else {
                 // Otros mensajes del Arduino
                 ColoredOutput.colorPrintln(linea, ColoredOutput.ANSIColor.CYAN);
@@ -201,16 +192,16 @@ public class ControladorMotor {
         String[] partes = linea.split("\t");
         if (partes.length == 2) {
             try {
-                long tiempo = Long.parseLong(partes[0]);
+                int tiempo = Integer.parseInt(partes[0]);
                 int rpm = Integer.parseInt(partes[1]);
-                actualizarGrafica(tiempo, rpm);
+                //actualizarGrafica(tiempo, rpm);
             } catch (NumberFormatException e) {
                 System.out.println("Error al parsear datos de RPM: " + linea);
             }
         }
     }
 
-    private void actualizarGrafica(long tiempo, int rpm) {
+    private void actualizarGrafica(int tiempo, int rpm) {
         javafx.application.Platform.runLater(() -> {
             XYChart.Series<Number, Number> series = funcionTransferenciaChart.getData().getFirst();
             series.getData().add(new XYChart.Data<>(tiempo, rpm));
