@@ -21,6 +21,11 @@ enum ConstanteElegida {
   KD
 };
 
+//Variables anti histeresis
+const int BANDA_MUERTA = 10; // RPM
+const int HISTERESIS = 5; // RPM
+int ultimaDireccion = 0; // -1 para negativo, 1 para positivo, 0 para detenido
+
 // Variables globales
 volatile int contadorPulsos = 0;
 volatile byte estadoAnterior = 0;
@@ -34,15 +39,22 @@ unsigned long tiempoRestado = 0;
 // Variables de control
 ModoControl modoControlActual = LAZO_ABIERTO;
 ConstanteElegida constanteElegida = KP;
-long kp = 0, ki = 0, kd = 0;
-long sumaP = 0, sumaI = 0, sumaD = 0;
-long errorAnterior = 0, errorAcumulado = 0;
-long PID = 0;
+float kp = 0, ki = 0, kd = 0;
+float sumaP = 0, sumaI = 0, sumaD = 0;
+float errorAnterior = 0, errorAcumulado = 0;
+float PID = 0;
+
+bool rpmPermitido=true;
 
 // Variables de entrada y salida
 volatile int RPMrequerido = 0;
-long RPM = 0;
+volatile int RPM = 0;
 int pwmValor = 0;
+const long LIMITE_INTEGRAL = 255; // Limite para anti-windup
+
+float lowPassFilter(float input, float output, float alpha) {
+  return alpha * input + (1 - alpha) * output;
+}
 
 void setup() {
   Serial.begin(9600);
@@ -50,10 +62,11 @@ void setup() {
   inicializarPines();
 }
 
-
 void loop() {
   leerEntradaSerial();
-  calcularPID();
+  if (modoControlActual == LAZO_CERRADO) {
+    calcularPID();
+  }
   aplicarControlMotor();
   actualizarRPM();
 }
@@ -97,66 +110,128 @@ void procesarEntradaNumerica(int valor) {
     case LAZO_ABIERTO:
       establecerRPM(valor);
       break;
-
     case LAZO_CERRADO:
+    if(rpmPermitido){
+      establecerRPM(valor);
+      calcularPID();
+    }else{
       switch (constanteElegida) {
         case KP:
           kp = valor;
+          Serial.print("KP establecido en: ");
+          Serial.println(kp);
+          rpmPermitido=true;
           break;
 
         case KI:
           ki = valor;
+          Serial.print("KI establecido en: ");
+          Serial.println(ki);
+          rpmPermitido=true;
           break;
 
         case KD:
           kd = valor;
+          Serial.print("KD establecido en: ");
+          Serial.println(kd);
+          rpmPermitido=true;
           break;
       }
+    }
+    break;
   }
 }
 
 void establecerRPM(int nuevoRPM) {
   if (abs(nuevoRPM) <= RPM_MAX) RPMrequerido = nuevoRPM;
+  Serial.println(RPMrequerido);
 }
 
 void procesarEntradaTexto(String comando) {
   if (comando.equals("lc")) {
     modoControlActual = LAZO_CERRADO;
+    Serial.println("Modo de control: Lazo cerrado");
   } else if (comando.equals("la")) {
     modoControlActual = LAZO_ABIERTO;
+    Serial.println("Modo de control: Lazo abierto");
   } else if (comando.equals("kp")) {
     constanteElegida = KP;
+    rpmPermitido=false;
+    Serial.println("Constante seleccionada: KP");
   } else if (comando.equals("ki")) {
     constanteElegida = KI;
+    rpmPermitido=false;
+    Serial.println("Constante seleccionada: KI");
   } else if (comando.equals("kd")) {
     constanteElegida = KD;
+    rpmPermitido=false;
+    Serial.println("Constante seleccionada: KD");
   }
 }
 
 void calcularPID() {
   long error = RPMrequerido - RPM;
-  sumaP = error * kp;
-  errorAcumulado += error;
-  sumaI = errorAcumulado * ki;
-  long errorDt = error - errorAnterior;
-  sumaD = errorDt * kd;
+  // Implementar banda muerta e histéresis
+  if (abs(error) < BANDA_MUERTA) {
+    error = 0;
+    ultimaDireccion = 0;
+  } else {
+    int direccionActual = (error > 0) ? 1 : -1;
+    if (ultimaDireccion != 0 && direccionActual != ultimaDireccion) {
+      // La dirección está cambiando, aplicar histéresis
+      if (abs(error) < BANDA_MUERTA + HISTERESIS) {
+        error = 0;
+      } else {
+        ultimaDireccion = direccionActual;
+      }
+    } else {
+      ultimaDireccion = direccionActual;
+    }
+  }
+  if (RPMrequerido == 0) {
+    error = 0;
+    errorAcumulado = 0;
+    sumaP = 0;
+    sumaI = 0;
+    sumaD = 0;
+  } else {
+    sumaP = error * kp;
+    // Aplicar anti-windup al término integral
+    errorAcumulado += error;
+    sumaI = errorAcumulado * ki;
+    if (sumaI > LIMITE_INTEGRAL) {
+      sumaI = LIMITE_INTEGRAL;
+      errorAcumulado = LIMITE_INTEGRAL / ki;
+    } else if (sumaI < -LIMITE_INTEGRAL) {
+      sumaI = -LIMITE_INTEGRAL;
+      errorAcumulado = -LIMITE_INTEGRAL / ki;
+    }
+    long errorDt = error - errorAnterior;
+    sumaD = errorDt * kd;
+  }
   PID = sumaP + sumaI + sumaD;
   errorAnterior = error;
 }
 
 void aplicarControlMotor() {
+  static float filteredPwm = 0;
+  float alpha = 0.2;
+
   if (modoControlActual == LAZO_ABIERTO) {
     pwmValor = map(RPMrequerido, -RPM_MAX, RPM_MAX, -255, 255);
   } else {
     pwmValor = constrain(PID, -255, 255);
   }
 
-  if (pwmValor > 0) {
-    analogWrite(PIN_ENABLE_A, pwmValor);
+  filteredPwm = lowPassFilter(pwmValor, filteredPwm, alpha);
+  int pwmOutput = round(filteredPwm);
+
+  if (pwmOutput > 0) {
+    analogWrite(PIN_ENABLE_A, pwmOutput);
     analogWrite(PIN_ENABLE_B, 0);
-  } else if (pwmValor < 0) {
+  } else if (pwmOutput < 0) {
     analogWrite(PIN_ENABLE_A, 0);
-    analogWrite(PIN_ENABLE_B, -pwmValor);
+    analogWrite(PIN_ENABLE_B, -pwmOutput);
   } else {
     analogWrite(PIN_ENABLE_A, 0);
     analogWrite(PIN_ENABLE_B, 0);
@@ -168,12 +243,13 @@ void actualizarRPM() {
   if ((tiempoActual - tiempoAnterior) >= INTERVALO_MUESTREO) {
     tiempoAnterior = tiempoActual;
     RPM = ((contadorPulsos / (float)PULSOS_POR_REVOLUCION) * (60000.0 / INTERVALO_MUESTREO));
-    if (RPM != 0) {
-      Serial.print(tiempoActual);
-      Serial.print('\t');
-      Serial.println(RPM);
-    } else {
+    if (RPM == 0) {
       tiempoRestado = millis();
+    }
+    else{
+    Serial.print(tiempoActual);
+    Serial.print('\t');
+    Serial.println(RPM);
     }
     contadorPulsos = 0;
   }

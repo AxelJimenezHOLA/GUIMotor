@@ -5,7 +5,9 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.chart.LineChart;
+import javafx.scene.chart.NumberAxis;
 import javafx.scene.chart.XYChart;
+import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
@@ -44,12 +46,22 @@ public class ControladorMotor {
     @FXML private ComboBox<String> puertosDisponiblesComboBox;
     @FXML private ComboBox<String> realimentacionElegidaComboBox;
     @FXML private LineChart<Number, Number> funcionTransferenciaChart;
+    @FXML private NumberAxis xAxis;
+    @FXML private NumberAxis yAxis;
 
-    @FXML public void initialize() {
+    @FXML
+    public void initialize() {
         puertosDisponiblesComboBox.setItems(obtenerPuertosDisponibles());
         realimentacionElegidaComboBox.setItems(obtenerRealimentaciones());
 
-        // Inicializar la gráfica
+        // Configure axes
+        xAxis.setLabel("Tiempo (ms)");
+        yAxis.setLabel("RPM");
+        xAxis.setForceZeroInRange(false);
+
+        yAxis.setLowerBound(-1300);
+        yAxis.setUpperBound(1300);
+        // Create and add the series
         XYChart.Series<Number, Number> series = new XYChart.Series<>();
         series.setName("RPM");
         funcionTransferenciaChart.getData().add(series);
@@ -77,7 +89,7 @@ public class ControladorMotor {
         return FXCollections.observableArrayList(nombresRealimentaciones);
     }
 
-    // Funciones
+    // Funciones FXML
     @FXML private void onPuertoSeleccionado() {
         arduinoPort = SerialPort.getCommPort(puertosDisponiblesComboBox.getValue());
         arduinoPort.setBaudRate(9600);
@@ -115,6 +127,28 @@ public class ControladorMotor {
         rpmTextField.setDisable(false);
     }
 
+    @FXML private void onKpEnviado() {
+        enviarConstante(COMANDO_KP, kpTextField.getText());
+    }
+
+    @FXML private void onKiEnviado() {
+        enviarConstante(COMANDO_KI, kiTextField.getText());
+    }
+
+    @FXML private void onKdEnviado() {
+        enviarConstante(COMANDO_KD, kdTextField.getText());
+    }
+
+    @FXML private void onRPMEnviado() {
+        enviarConstante(COMANDO_LAZO_ABIERTO, rpmTextField.getText());
+        if (realimentacionElegidaComboBox.getValue().equals("Abierto")) {
+            enviarComando(COMANDO_LAZO_ABIERTO);
+        } else {
+            enviarComando(COMANDO_LAZO_CERRADO);
+        }
+    }
+
+    // Funciones extra
     private void leerDatosArduino() {
         while (arduinoPort.isOpen()) {
             try {
@@ -141,7 +175,7 @@ public class ControladorMotor {
     private void enviarComando(String comando) {
         if (arduinoPort != null && arduinoPort.isOpen()) {
             arduinoPort.writeBytes(comando.getBytes(), comando.length());
-            ColoredOutput.colorPrintln(comando.trim(), ColoredOutput.ANSIColor.GREEN);
+            ColoredOutput.colorPrint(comando, ColoredOutput.ANSIColor.GREEN);
         } else {
             System.out.println("No se pudo enviar el comando. El puerto no está abierto.");
         }
@@ -152,38 +186,15 @@ public class ControladorMotor {
         enviarComando(valor + "\n");
     }
 
-    @FXML private void onKpEnviado() {
-        enviarConstante(COMANDO_KP, kpTextField.getText());
-    }
-
-    @FXML private void onKiEnviado() {
-        enviarConstante(COMANDO_KI, kiTextField.getText());
-    }
-
-    @FXML private void onKdEnviado() {
-        enviarConstante(COMANDO_KD, kdTextField.getText());
-    }
-
-    @FXML private void onRPMEnviado() {
-        enviarConstante(COMANDO_LAZO_ABIERTO, rpmTextField.getText());
-        if (realimentacionElegidaComboBox.getValue().equals("Abierto")) {
-            enviarComando(COMANDO_LAZO_ABIERTO);
-        } else {
-            enviarComando(COMANDO_LAZO_CERRADO);
-        }
-    }
-
     private void procesarDatosArduino(String datos) {
         String[] lineas = datos.split("\n");
         for (String linea : lineas) {
             linea = linea.trim();
 
+            ColoredOutput.colorPrintln(linea, ColoredOutput.ANSIColor.CYAN);
             if (linea.contains("\t")) {
                 // Datos de RPM y tiempo
                 procesarDatosRPM(linea);
-            } else {
-                // Otros mensajes del Arduino
-                ColoredOutput.colorPrintln(linea, ColoredOutput.ANSIColor.CYAN);
             }
         }
     }
@@ -194,7 +205,7 @@ public class ControladorMotor {
             try {
                 int tiempo = Integer.parseInt(partes[0]);
                 int rpm = Integer.parseInt(partes[1]);
-                //actualizarGrafica(tiempo, rpm);
+                actualizarGrafica(tiempo, rpm);
             } catch (NumberFormatException e) {
                 System.out.println("Error al parsear datos de RPM: " + linea);
             }
@@ -206,14 +217,27 @@ public class ControladorMotor {
             XYChart.Series<Number, Number> series = funcionTransferenciaChart.getData().getFirst();
             series.getData().add(new XYChart.Data<>(tiempo, rpm));
 
-            // Limitar el número de puntos en la gráfica para evitar sobrecarga
+            // Hide the symbol of the new point
+            series.getData().getLast().getNode().setVisible(false);
+
+            // Limit the number of points in the graph to avoid overload
             if (series.getData().size() > 100) {
                 series.getData().removeFirst();
             }
 
+            // Adjust X-axis range
+            xAxis.setLowerBound(series.getData().getFirst().getXValue().doubleValue());
+            xAxis.setUpperBound(tiempo);
+
+            // Fix the Y-axis range between -1300 and 1300
+            yAxis.setLowerBound(-1300);
+            yAxis.setUpperBound(1300);
+
             rpmMedidosLabel.setText(rpm + " RPM");
         });
     }
+
+
 
     public void close() {
         if (arduinoPort != null && arduinoPort.isOpen()) {

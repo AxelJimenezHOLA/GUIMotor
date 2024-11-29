@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <?import javafx.geometry.Insets?>
-<?import javafx.scene.chart.CategoryAxis?>
 <?import javafx.scene.chart.LineChart?>
 <?import javafx.scene.chart.NumberAxis?>
 <?import javafx.scene.control.ComboBox?>
@@ -15,13 +14,13 @@
     <padding>
         <Insets bottom="20.0" left="20.0" right="20.0" top="20.0" />
     </padding>
-   <LineChart fx:id="funcionTransferenciaChart" prefHeight="318.0" prefWidth="703.0">
-     <xAxis>
-       <CategoryAxis label="Tiempo" side="BOTTOM" />
-     </xAxis>
-     <yAxis>
-       <NumberAxis label="RPM" side="LEFT" />
-     </yAxis>
+   <LineChart fx:id="funcionTransferenciaChart" animated="false" prefHeight="318.0" prefWidth="703.0">
+      <xAxis>
+         <NumberAxis label="Tiempo (ms)" fx:id="xAxis" />
+      </xAxis>
+      <yAxis>
+         <NumberAxis fx:id="yAxis" label="RPM" />
+      </yAxis>
    </LineChart>
    <HBox alignment="CENTER" prefHeight="50.0" prefWidth="762.0">
       <children>
