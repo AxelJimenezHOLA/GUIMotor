@@ -140,12 +140,7 @@ public class ControladorMotor {
     }
 
     @FXML private void onRPMEnviado() {
-        enviarConstante(COMANDO_LAZO_ABIERTO, rpmTextField.getText());
-        if (realimentacionElegidaComboBox.getValue().equals("Abierto")) {
-            enviarComando(COMANDO_LAZO_ABIERTO);
-        } else {
-            enviarComando(COMANDO_LAZO_CERRADO);
-        }
+        enviarConstante(rpmTextField.getText());
     }
 
     // Funciones extra
@@ -179,6 +174,10 @@ public class ControladorMotor {
         } else {
             System.out.println("No se pudo enviar el comando. El puerto no está abierto.");
         }
+    }
+
+    private void enviarConstante(String valor) {
+        enviarComando(valor);
     }
 
     private void enviarConstante(String comando, String valor) {
@@ -236,8 +235,6 @@ public class ControladorMotor {
             rpmMedidosLabel.setText(rpm + " RPM");
         });
     }
-
-
 
     public void close() {
         if (arduinoPort != null && arduinoPort.isOpen()) {
