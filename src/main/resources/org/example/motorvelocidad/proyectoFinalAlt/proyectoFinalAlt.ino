@@ -171,23 +171,6 @@ void procesarEntradaTexto(String comando) {
 
 void calcularPID() {
   long error = RPMrequerido - RPM;
-  // Implementar banda muerta e histéresis
-  if (abs(error) < BANDA_MUERTA) {
-    error = 0;
-    ultimaDireccion = 0;
-  } else {
-    int direccionActual = (error > 0) ? 1 : -1;
-    if (ultimaDireccion != 0 && direccionActual != ultimaDireccion) {
-      // La dirección está cambiando, aplicar histéresis
-      if (abs(error) < BANDA_MUERTA + HISTERESIS) {
-        error = 0;
-      } else {
-        ultimaDireccion = direccionActual;
-      }
-    } else {
-      ultimaDireccion = direccionActual;
-    }
-  }
   if (RPMrequerido == 0) {
     error = 0;
     errorAcumulado = 0;
@@ -214,29 +197,34 @@ void calcularPID() {
 }
 
 void aplicarControlMotor() {
-  static float filteredPwm = 0;
-  float alpha = 0.2;
-
-  if (modoControlActual == LAZO_ABIERTO) {
+  // Revisar el modo de control
+  if (modoControlActual == LAZO_CERRADO) {
+    // En lazo cerrado, usar el valor de PID para calcular el PWM
+    pwmValor = constrain(PID, -255, 255);
+  } else if (modoControlActual == LAZO_ABIERTO) {
+    // En lazo abierto, calcular el PWM según el RPM requerido directamente
     pwmValor = map(RPMrequerido, -RPM_MAX, RPM_MAX, -255, 255);
   } else {
-    pwmValor = constrain(PID, -255, 255);
+    pwmValor = 0; // Apagar el motor si no hay un modo definido
   }
 
-  filteredPwm = lowPassFilter(pwmValor, filteredPwm, alpha);
-  int pwmOutput = round(filteredPwm);
-
-  if (pwmOutput > 0) {
-    analogWrite(PIN_ENABLE_A, pwmOutput);
+  // Aplicar el PWM al motor según su dirección
+  if (pwmValor > 0) {
+    // Movimiento en sentido positivo
+    analogWrite(PIN_ENABLE_A, pwmValor);
     analogWrite(PIN_ENABLE_B, 0);
-  } else if (pwmOutput < 0) {
+  } else if (pwmValor < 0) {
+    // Movimiento en sentido negativo
     analogWrite(PIN_ENABLE_A, 0);
-    analogWrite(PIN_ENABLE_B, -pwmOutput);
+    analogWrite(PIN_ENABLE_B, -pwmValor);
   } else {
+    // Detener el motor si el PWM es 0
     analogWrite(PIN_ENABLE_A, 0);
     analogWrite(PIN_ENABLE_B, 0);
   }
 }
+
+
 
 void actualizarRPM() {
   tiempoActual = millis() - tiempoRestado;
